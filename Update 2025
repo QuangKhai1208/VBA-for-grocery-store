@@ -1,0 +1,336 @@
+Option Explicit
+Public priceColumn As Integer
+Private inventoryData As Variant ' Global variable to store inventory data
+Private rowIndex As Long ' Global variable to store the row index of the selected item
+Private Sub UserForm_Initialize()
+    ' Clear any existing items in search field
+    TextBoxFindItem.Value = ""
+    
+    ' Load Inventory Data
+    LoadInventoryData
+
+    ' Populate ComboBoxCustomer with choices
+    ComboBoxCustomer.AddItem "Vi" & ChrW(7879) & "t Nam"
+    ComboBoxCustomer.AddItem "Ng" & ChrW(432) & ChrW(7901) & "i n" & ChrW(432) _
+         & ChrW(7899) & "c ngoài"
+
+    ' Set up the ListBox for the cart
+    With listCart
+        .ColumnCount = 3  ' Product Name, Quantity, Price
+        .ColumnWidths = "170;60;80" ' Adjust column widths
+    End With
+    
+    ' Set the price column auto for foreigner price
+    priceColumn = 14
+End Sub
+
+Private Sub LoadInventoryData()
+    ' Get the path to the inventory file
+    Dim inventoryPath As String
+    inventoryPath = ThisWorkbook.Path & "\Minimart 69 - 2025 - Hang ton kho.xlsm"
+
+    ' Open the inventory workbook
+    Dim inventoryWorkbook As Workbook
+    Set inventoryWorkbook = Workbooks.Open(inventoryPath)
+
+    ' Set the inventory data array
+    inventoryData = inventoryWorkbook.Sheets(1).Range("A6:T" & _
+        inventoryWorkbook.Sheets(1).Cells(inventoryWorkbook.Sheets(1).Rows.Count, 1).End(xlUp).Row).Value
+
+    ' Close the inventory workbook
+    'inventoryWorkbook.Close SaveChanges:=False
+End Sub
+Private Sub Find_Click()
+    ' Event handler for the Find button
+
+    If Me.TextBoxFindItem.Value = "" Then
+        MsgBox "Error 1: Please fill in all the information"
+        Exit Sub
+    End If
+
+    ' Get the keyword entered by the user
+    Dim searchItem As String
+    searchItem = TextBoxFindItem.Value
+
+    ' Clear the ComboBox before populating with new results
+    cmbResults.Clear
+
+    ' Check if the keyword is not empty
+    If Trim(searchItem) <> "" Then
+        ' Check if the data is outdated or empty
+        If UBound(inventoryData) = 0 Then
+            ' Data is outdated or empty, reload
+            LoadInventoryData
+        End If
+        
+        ' Find matches in the item name column (assuming item name is in column C)
+        Dim item As Variant
+        Dim i As Long
+        For i = LBound(inventoryData, 1) To UBound(inventoryData, 1)
+        If InStr(1, inventoryData(i, 4), searchItem, vbTextCompare) > 0 Then
+                ' Add the matching item to the ComboBox
+                cmbResults.AddItem inventoryData(i, 4) ' Assuming item name is in column 3
+            End If
+        Next i
+    Else
+        ' If the keyword is empty, display a message or take appropriate action
+        MsgBox "Please enter a keyword to search."
+    End If
+    
+    ' Enable the Submit button
+    Me.AddToCart.Enabled = True
+    
+    
+    ' Select the first item in the combo box if there are items
+    If Me.cmbResults.ListCount > 0 Then
+        Me.cmbResults.ListIndex = 0
+    End If
+End Sub
+Private Sub cmbResults_Change()
+    ' Event handler for the ComboBox change event
+    Dim selecteditem As String
+    selecteditem = cmbResults.Value
+
+    ' C?p nh?t thông tin s?n ph?m
+    UpdateLabelsBasedOnSelectedItem selecteditem
+End Sub
+Private Sub cmbCustomerType_Change()
+    If Me.cmbCustomerType.Value = "Vi" & ChrW(7879) & "t Nam" Then
+        priceColumn = 13 ' C?t giá bán Vi?t Nam
+    ElseIf Me.cmbCustomerType.Value = "Ng" & ChrW(432) & ChrW(7901) & "i n" & ChrW(432) & ChrW(7899) & "c ngoài" Then
+        priceColumn = 14 ' C?t giá bán nu?c ngoài
+    End If
+
+    ' C?p nh?t l?i giá bán ngay khi thay d?i lo?i khách hàng
+    If rowIndex > 0 Then
+        Me.txtSellPrice.Value = Format(inventoryData(rowIndex, priceColumn), "0,000")
+    End If
+End Sub
+Private Sub UpdateLabelsBasedOnSelectedItem(ByVal selecteditem As String)
+    ' C?p nh?t thông tin s?n ph?m d?a trên l?a ch?n
+
+    rowIndex = 0 ' Reset index d? tránh l?i
+    
+    ' Find the row index of the product in inventory data
+    Dim i As Long
+    For i = LBound(inventoryData) To UBound(inventoryData)
+        If inventoryData(i, 4) = selecteditem Then ' Column 4 is the product name
+            rowIndex = i
+            Exit For
+        End If
+    Next i
+
+    ' N?u tìm th?y s?n ph?m, c?p nh?t thông tin
+    If rowIndex > 0 Then
+        LabelItemCode.Caption = "Item Code: " & inventoryData(rowIndex, 2)
+        LabelItemName.Caption = "Item Name: " & inventoryData(rowIndex, 4)
+        LabelUnit.Caption = "Unit: " & inventoryData(rowIndex, 5)
+        LabelStockPrice.Caption = "Price: " & Format(inventoryData(rowIndex, 10), "0,000")
+        LabelRemainQuantity.Caption = "Remain stocks: " & inventoryData(rowIndex, 16)
+        Me.txtSellPrice.Value = Format(inventoryData(rowIndex, priceColumn), "0,000")
+    End If
+End Sub
+
+Private Sub UpdateSellPriceBasedOnCustomer()
+    ' Update the selling price based on ComboBoxCustomer selection
+
+    Dim customerType As String
+    customerType = ComboBoxCustomer.Value
+    
+    ' Get the current selling price
+    Dim currentSellPrice As Double
+    currentSellPrice = Val(LabelStockPrice.Caption) ' Assuming current selling price is displayed in LabelStockPrice
+    
+    ' Update selling price based on customer type
+    If customerType = "Vi" & ChrW(7879) & "t Nam" Then
+            ' Update selling price for Vietnamese customers (take 13th column)
+            Me.txtSellPrice.Value = Format(inventoryData(rowIndex, 13), "0,000")
+        ElseIf customerType = "Ng" & ChrW(432) & ChrW(7901) & "i n" & ChrW(432) _
+         & ChrW(7899) & "c ngoài" Then
+            ' Update selling price for Foreigners (take 14th column)
+            Me.txtSellPrice.Value = Format(inventoryData(rowIndex, 14), "0,000")
+        Else
+            'MsgBox "Invalid customer type."
+    End If
+End Sub
+Private Sub AddToCart_Click()
+    ' Ki?m tra xem các tru?ng có du?c di?n d?y d? không
+    If Me.txtSellPrice.Value = "" Or Me.txtSellQuantity.Value = "" Then
+        MsgBox "ERROR 1: Please fill in all the information."
+        Exit Sub
+    End If
+
+    ' L?y thông tin s?n ph?m
+    Dim itemName As String
+    Dim sellQuantity As Double
+    Dim sellPrice As Double
+
+    itemName = Replace(Me.LabelItemName.Caption, "Item Name: ", "")
+    sellQuantity = Val(Me.txtSellQuantity.Value)
+    sellPrice = Application.WorksheetFunction.Ceiling(Val(Me.txtSellPrice.Value) * 1000, 1)
+
+    ' Thêm s?n ph?m vào ListBox (ho?c Dictionary)
+    Me.listCart.AddItem itemName
+    Me.listCart.List(Me.listCart.ListCount - 1, 1) = sellQuantity
+    Me.listCart.List(Me.listCart.ListCount - 1, 2) = sellPrice
+
+    ' Xóa input sau khi thêm vào cart
+    Me.txtSellQuantity.Value = ""
+
+    UpdateTotalPayment
+End Sub
+Private Sub SubmitButton_Click()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets(1)
+    
+    ' Xác nh?n thanh toán và ghi nh?n vào Doanh thu
+    Dim confirmPayment As VbMsgBoxResult
+    confirmPayment = MsgBox("Are you sure to record the selling results?", vbYesNo + vbQuestion, "Confirm Submition")
+    
+    If confirmPayment = vbNo Then
+        ' Ghi nh?n thông tin vào s? Doanh thu
+        Exit Sub ' G?i hàm ghi nh?n Doanh thu (c?n d?nh nghia thêm)
+        
+        ' Xóa gi? hàng sau khi thanh toán thành công
+        Me.listCart.Clear
+    End If
+    
+    
+    Dim lastRow As Long
+    Dim i As Integer
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
+
+    ' L?p qua các s?n ph?m trong gi? hàng (ListBox)
+    For i = 0 To Me.listCart.ListCount - 1
+        Dim itemName As String
+        Dim sellQuantity As Double
+        Dim sellPrice As Double
+
+        itemName = Me.listCart.List(i, 0)
+        sellQuantity = Me.listCart.List(i, 1)
+        sellPrice = Me.listCart.List(i, 2)
+
+        ' L?y thông tin còn thi?u t? giao di?n (n?u c?n)
+        Dim itemCode As String
+        Dim stockprice As Double
+        Dim quantity As Integer
+
+        itemCode = Replace(Me.LabelItemCode.Caption, "Item Code: ", "")
+        stockprice = CDbl(Replace(Me.LabelStockPrice.Caption, "Price: ", ""))
+        quantity = CInt(Replace(Me.LabelRemainQuantity.Caption, "Remain stocks: ", ""))
+
+        ' Ghi d? li?u vào Sheet
+        ws.Cells(lastRow, 1).Value = Format(Date, "mm-dd-yyyy")
+        ws.Cells(lastRow, 2).Value = Format(Date, "mm")
+        ws.Cells(lastRow, 3).Value = Format(Now, "yyyy")
+        ws.Cells(lastRow, 4).Value = itemCode
+        ws.Cells(lastRow, 5).Value = itemName
+        ws.Cells(lastRow, 6).Value = stockprice
+        ws.Cells(lastRow, 7).Value = quantity - sellQuantity
+        ws.Cells(lastRow, 8).Value = sellPrice
+        ws.Cells(lastRow, 9).Value = sellQuantity
+        ws.Cells(lastRow, 10).Value = sellPrice * sellQuantity
+        ws.Cells(lastRow, 11).Value = (-stockprice) * sellQuantity
+        ws.Cells(lastRow, 12).Value = (sellPrice - stockprice) * sellQuantity
+        ws.Cells(lastRow, 13).Value = ws.Cells(1, 17).Value ' Status
+        ws.Cells(lastRow, 15).Value = Me.ComboBoxCustomer.Value
+
+        lastRow = lastRow + 1
+    Next i
+End Sub
+
+Private Sub txtBarcode_Change()
+    ' Get the scanned barcode
+    Dim barcode As String
+    barcode = Trim(Me.txtBarcode.Value)
+    
+    ' Ensure it's not empty
+    If barcode = "" Then Exit Sub
+
+    ' Load inventory data if not already loaded
+    If UBound(inventoryData) = 0 Then LoadInventoryData
+
+    ' Search for the barcode in inventory
+    Dim foundItem As Boolean
+    foundItem = False
+    Dim i As Integer
+    Dim customerType As String
+    customerType = ComboBoxCustomer.Value
+    Dim itemName As String, unitPrice As Double
+    
+    For i = LBound(inventoryData, 1) To UBound(inventoryData, 1)
+        If Trim(inventoryData(i, 3)) = barcode Then ' Barcode is now in column 3
+            itemName = inventoryData(i, 4) ' Item name (Column 4)
+            If customerType = "Vi" & ChrW(7879) & "t Nam" Then
+            ' Update selling price for Vietnamese customers (take 13th column)
+            unitPrice = inventoryData(i, 13)
+        ElseIf customerType = "Ng" & ChrW(432) & ChrW(7901) & "i n" & ChrW(432) _
+         & ChrW(7899) & "c ngoài" Then
+            ' Update selling price for Foreigners (take 14th column)
+            unitPrice = inventoryData(i, 14)
+        Else
+            'MsgBox "Invalid customer type."
+    End If
+            foundItem = True
+            Exit For ' Stop searching once found
+        End If
+    Next i
+
+    ' Process the result
+    If foundItem Then
+        ' Add the item to the cart
+        listCart.AddItem itemName
+        listCart.List(listCart.ListCount - 1, 1) = 1 ' Default quantity = 1
+        listCart.List(listCart.ListCount - 1, 2) = unitPrice
+        
+        ' Clear barcode input for next scan
+        Me.txtBarcode.Value = ""
+        
+        ' Update total price
+        UpdateTotalPayment
+    Else
+        ' Show quick notification (1 second)
+        MsgBox "Product not found! Switching to manual entry.", vbInformation, "Warning"
+        
+        ' Focus on manual entry field
+        Me.TextBoxFindItem.SetFocus
+    End If
+End Sub
+Private Sub UpdateTotalPayment()
+    Dim total As Double
+    Dim i As Integer
+
+    ' Loop through cart items
+    For i = 0 To listCart.ListCount - 1
+        total = total + (listCart.List(i, 1) * listCart.List(i, 2)) ' Quantity * Price
+    Next i
+
+    ' Display the total price in a label
+    lblTotal.Caption = "Total: " & Format(total, "#,##0 VND")
+End Sub
+Private Sub HandleNotFound(ByVal barcode As String)
+    MsgBox "Product not found! Please enter manually.", vbExclamation, "Barcode Not Found"
+    
+    ' Move focus to the name search TextBox for manual search
+    Me.TextBoxFindItem.SetFocus
+End Sub
+Private Sub btnDelete_Click()
+    ' Ensure an item is selected before attempting to delete
+    If listCart.ListIndex = -1 Then
+        MsgBox "Please select an item to remove from the cart.", vbExclamation, "No Item Selected"
+        Exit Sub
+    End If
+
+    ' Confirm deletion with the user
+    'Dim confirmDelete As VbMsgBoxResult
+    'confirmDelete = MsgBox("Are you sure you want to remove this item?", vbYesNo + vbQuestion, "Confirm Deletion")
+
+    'If confirmDelete = vbYes Then
+        ' Remove the selected item from the cart
+        listCart.RemoveItem listCart.ListIndex
+        
+        ' Update the total payment after item removal
+        UpdateTotalPayment
+    'End If
+End Sub
+
