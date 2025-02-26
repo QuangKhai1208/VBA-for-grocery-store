@@ -34,6 +34,9 @@ Private Sub UserForm_Initialize()
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Sheets(1) ' Replace "Sheet3" with the name of your worksheet
 
+    ' Initialize the cart dictionary
+    Set cartDict = CreateObject("Scripting.Dictionary")
+
     Dim lastRow As Long
     lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     
@@ -60,7 +63,7 @@ End Sub
 Private Sub SetupListBox()
     With listCart
         .ColumnCount = 4
-        .ColumnWidths = "230;60;70;100"
+        .ColumnWidths = "230;60;70;80"
     End With
 End Sub
 Private Sub LoadInventoryData()
@@ -146,7 +149,7 @@ Private Sub UpdateFieldsForSelectedName()
             ' Update corresponding fields
             Me.cmbItemClass.Value = inventoryData(i, COLUMN_INVENTORY_ITEM_CLASS)
             Me.txtItemCode.Value = inventoryData(i, COLUMN_INVENTORY_ITEM_CODE)
-            Me.txtPrice.Value = inventoryData(i, COLUMN_INVENTORY_STOCK_PRICE_END) / 1000 ' Assuming import price is at index 5
+            Me.txtPrice.Value = Format(inventoryData(i, COLUMN_INVENTORY_STOCK_PRICE_END), "#,###.#0")
             Me.txtDonVi.Value = inventoryData(i, COLUMN_INVENTORY_ITEM_UNIT)
             Exit For
         End If
@@ -194,32 +197,61 @@ Public Sub ProcessBarcode()
     foundItem = False
     Dim i As Integer
     Dim itemName As String, totalPayment As Double
+    Dim classification As String
+    Dim itemCode As String
+    Dim itemBarcode As String
+    Dim price As Double
+    Dim quantity As Integer
+    Dim donVi As String
+    Dim status As String
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets(1)
     
     For i = LBound(inventoryData, 1) To UBound(inventoryData, 1)
-        If Trim(inventoryData(i, COLUMN_ITEM_BARCODE)) = barcode Then
-            itemName = inventoryData(i, COLUMN_ITEM_NAME)
+        If Trim(inventoryData(i, COLUMN_INVENTORY_ITEM_BARCODE)) = barcode Then
+            itemName = inventoryData(i, COLUMN_INVENTORY_ITEM_NAME)
             Dim stockPrice As Double
             Dim remainingStock As Double
             Dim importQuantity As Double
             
+            itemCode = inventoryData(i, COLUMN_INVENTORY_ITEM_CODE)
             importQuantity = 1
-            stockPrice = IIf(IsEmpty(inventoryData(i, COLUMN_STOCK_PRICE)), _
-                             CDbl(inventoryData(i, COLUMN_STOCK_PRICE_END)), _
-                             CDbl(inventoryData(i, COLUMN_STOCK_PRICE))) ' Use the defined constant
-            remainingStock = CDbl(inventoryData(i, COLUMN_REMAINING_STOCK)) ' Use the defined constant
+            stockPrice = IIf(IsEmpty(inventoryData(i, COLUMN_INVENTORY_STOCK_PRICE_BEGIN)), _
+                             CDbl(inventoryData(i, COLUMN_INVENTORY_STOCK_PRICE_END)), _
+                             CDbl(inventoryData(i, COLUMN_INVENTORY_STOCK_PRICE_BEGIN))) ' Use the defined constant
+            remainingStock = CDbl(inventoryData(i, COLUMN_INVENTORY_REMAINING_STOCK)) ' Use the defined constant
             totalPayment = importQuantity * stockPrice
+            itemBarcode = barcode
+            classification = inventoryData(i, COLUMN_INVENTORY_ITEM_CLASS)
+            status = ws.Cells(1, IMPORT_STATUS_NOT_UPDATE).Value
+            donVi = inventoryData(i, COLUMN_INVENTORY_ITEM_UNIT)
             
             ' Populate the form fields
             Me.cmbItemName.Value = itemName
-            Me.txtItemCode.Value = inventoryData(i, COLUMN_INVENTORY_ITEM_CODE)
-            Me.cmbItemClass.Value = inventoryData(i, COLUMN_INVENTORY_ITEM_CLASS)
+            Me.txtItemCode.Value = itemCode
+            Me.cmbItemClass.Value = classification
             Me.txtQuantity.Value = importQuantity
             Me.txtPrice.Value = Format(stockPrice, "#,###")
-            Me.txtDonVi.Value = inventoryData(i, COLUMN_INVENTORY_ITEM_UNIT)
+            Me.txtDonVi.Value = donVi
             foundItem = True
             Exit For
         End If
     Next i
+    
+   ' Check if item already exists in the Dictionary
+    If cartDict.Exists(itemCode) Then
+    Dim existingData As Variant
+        existingData = cartDict(itemCode)
+        existingData(7) = existingData(7) + quantity ' Update import quantity
+        existingData(9) = existingData(7) * price ' Update total payment
+        cartDict(itemCode) = existingData
+    Else
+        cartDict.Add inventoryData(i, COLUMN_INVENTORY_ITEM_CODE), Array(Date, "", classification, itemCode, itemBarcode, itemName, donVi, importQuantity, stockPrice, stockPrice * importQuantity, status)  ' Add to cartDict
+    End If
+    
+    ' Update ListBox
+    UpdateListBox
+    UpdateTotalPayment
 
     If Not foundItem Then
         ' Barcode not found, prompt user
@@ -252,9 +284,13 @@ Private Sub AddToCart_Click()
     Dim classification As String
     Dim itemCode As String
     Dim itemName As String
-    Dim price As Double
-    Dim quantity As Integer
+    Dim itemBarcode As String
+    Dim stockPrice As Double
+    Dim importQuantity As Integer
     Dim donVi As String
+    Dim status As String
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets(1)
     
     ' Get the multiplier from the ComboBox
     'Dim multiplier As Integer
@@ -274,116 +310,35 @@ Private Sub AddToCart_Click()
     
     classification = Me.cmbItemClass.Value
     itemName = Me.cmbItemName.Value
-    price = Me.txtPrice.Value * 1000
-    quantity = CInt(Me.txtQuantity.Value)
+    stockPrice = Me.txtPrice.Value
+    importQuantity = CInt(Me.txtQuantity.Value)
     donVi = Me.txtDonVi.Value
-    Status = ws.Cells(1, IMPORT_STATUS_NOT_UPDATE).Value
+    status = ws.Cells(1, IMPORT_STATUS_NOT_UPDATE).Value
     
-    ' Add the item to the cartDict with all relevant information
-    Dim newItem As Variant
-    newItem = Array(Date, "", classification, itemCode, itemBarcode, itemName, donVi, quantity, price, price * quantity, Status) ' Include all necessary fields
-    cartDict.Add itemCode, newItem ' Add to cartDict
+    ' Check if item already exists in the Dictionary
+    If cartDict.Exists(itemCode) Then
+        
+    Dim existingData As Variant
     
+        existingData = cartDict(itemCode)
+        existingData(7) = existingData(7) + importQuantity ' Update import quantity
+        existingData(9) = existingData(7) * stockPrice ' Update total payment
+        cartDict(itemCode) = existingData
+    Else
+       cartDict.Add itemCode, Array(Date, "", classification, itemCode, itemBarcode, itemName, donVi, importQuantity, stockPrice, stockPrice * importQuantity, status)  ' Add to cartDict
+    End If
     ' Update ListBox
     UpdateListBox
-
+    UpdateTotalPayment
+    
     ' Clear the input fields after submitting
-    Me.cmbItemName.Value = ""
-    Me.txtItemCode.Value = ""
-    Me.cmbItemClass.Value = ""
+    'Me.cmbItemName.Value = ""
+    'Me.txtItemCode.Value = ""
+    'Me.cmbItemClass.Value = ""
     Me.txtQuantity.Value = ""
-    Me.txtPrice.Value = ""
-    Me.txtDonVi.Value = ""
-    
-    ' Get the last used row in Sheet1
-    Dim ws As Worksheet
-    Set ws = ThisWorkbook.Sheets(1) ' Replace "Sheet1" with the name of your data sheet
-    
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 3).End(xlUp).Row + 1
-    
-    ' Check if the Item Code already exists with a different Item Name
-    Dim searchItemCode As String
-    searchItemCode = Me.txtItemCode.Value ' Assuming cmbItemClass contains the searchItemCode
-    
-    Dim itemFound As Boolean
-    itemFound = False
-    Dim historicalName As String
-    
-    For i = LBound(inventoryData, 1) To UBound(inventoryData, 1)
-        If searchItemCode = inventoryData(i, COLUMN_INVENTORY_ITEM_CODE) Then ' Assuming Item Code is in the fourth column (index 2) of inventoryData
-            If inventoryData(i, COLUMN_INVENTORY_ITEM_NAME) <> Me.cmbItemName.Value Then ' Assuming Item Name is in the fifth column (index 3) of inventoryData
-                itemFound = True
-                historicalName = inventoryData(i, COLUMN_INVENTORY_ITEM_CODE) ' Store the historical name
-                Exit For
-            End If
-        End If
-    Next i
-    
-    ' If Item Code is found with a different Item Name, prompt for Item Name
-    If itemFound Then
-        ' Extract the highest numerical code for the classification
-        Dim highestNumericalCode As String
-        For i = LBound(inventoryData, 1) To UBound(inventoryData, 1)
-            If cmbItemClass = inventoryData(i, 1) Then ' Classification in UserForm = Classification in Inventory
-                
-                ' Update the highest numerical code if the current one is higher
-                If inventoryData(i, COLUMN_INVENTORY_ITEM_CODE) > highestNumericalCode Then
-                    highestNumericalCode = inventoryData(i, COLUMN_INVENTORY_ITEM_CODE)
-                End If
-            End If
-        Next i
-        
-        'Debug.Print (cmbItemClass)
-        'Debug.Print (highestNumericalCode)
-        MsgBox "Error 3: Item Code already exists with a different name. The historical name is: " & historicalName & vbNewLine & "The highest numerical code for this classification is: " & highestNumericalCode
-        Me.txtItemCode.Value = cmbItemClass.Value & ExtractNumericPart(highestNumericalCode) + 1
-        Me.txtItemCode.SetFocus
-        Exit Sub
-    End If
-    
-    
-    'Check if the Item Name already exists with a different Item Code
-    Dim itemNameFound As Boolean
-    itemNameFound = False
-    Dim historicalCode As String ' Variable to store historical code in inventory data
-    
-    For i = LBound(inventoryData, 1) To UBound(inventoryData, 1)
-        If Me.cmbItemName.Value = inventoryData(i, 3) Then ' Assuming Item Name is in the third column (index 3) of inventoryData
-            If inventoryData(i, 2) <> Me.txtItemCode.Value Then ' Assuming Item Code is in the second column (index 2) of inventoryData
-                itemNameFound = True
-                historicalCode = inventoryData(i, 2) ' Store the historical code in inventory data
-                Exit For
-            End If
-        End If
-    Next i
-    
-    ' If Item Name is found with a different Item Code, prompt for Item Code
-    If itemNameFound Then
-        MsgBox "Error 4: Item Name already exists with a different Item Code. The historical code is: " & historicalCode
-        txtItemCode.Value = historicalCode
-        txtItemCode.SetFocus
-        Exit Sub
-    End If
-
-    
-    ' Add the form entries to the table
-    ws.Cells(lastRow, COLUMN_IMPORT_DATE).Value = Date
-    ws.Cells(lastRow, COLUMN_IMPORT_ITEM_CLASS).Value = classification
-    ws.Cells(lastRow, COLUMN_IMPORT_ITEM_CODE).Value = itemCode
-    ws.Cells(lastRow, COLUMN_IMPORT_ITEM_NAME).Value = itemName
-    ws.Cells(lastRow, COLUMN_IMPORT_ITEM_UNIT).Value = donVi
-    ws.Cells(lastRow, COLUMN_IMPORT_QUANTITY).Value = quantity
-    ws.Cells(lastRow, COLUMN_IMPORT_UNIT_PRICE).Value = price
-    ws.Cells(lastRow, 10).Value = price * quantity
-    ws.Cells(lastRow, COLUMN_IMPORT_STATUS).Value = ws.Cells(1, IMPORT_STATUS_NOT_UPDATE).Value
-        
-    ' Clear the input fields after submitting
-    Me.txtItemCode.Value = ExtractNumericPart(Me.txtItemCode.Value) + 1
-    'Me.txtItemName.Value = ""
-    Me.txtPrice.Value = ""
-    Me.txtQuantity.Value = ""
+    'Me.txtPrice.Value = ""
     'Me.txtDonVi.Value = ""
+       
 
     'MsgBox "Done!!!"
 End Sub
@@ -398,7 +353,7 @@ Private Sub DoneButton_Click()
     Dim item As Variant
     For Each item In cartDict.Keys
         ws.Cells(lastRow, COLUMN_IMPORT_DATE).Value = item(0) ' Date
-        ws.Cells(lastRow, COLUMN_IMPORT_DATE_UPDATE).Value = Date ' Update date
+        ws.Cells(lastRow, COLUMN_IMPORT_DATE_UPDATE).Value = "" ' Update date
         ws.Cells(lastRow, COLUMN_IMPORT_ITEM_CLASS).Value = item(2) ' Classification
         ws.Cells(lastRow, COLUMN_IMPORT_ITEM_CODE).Value = item(3) ' Item Code
         ws.Cells(lastRow, COLUMN_IMPORT_ITEM_BARCODE).Value = item(4) ' Item Barcode
@@ -413,7 +368,7 @@ Private Sub DoneButton_Click()
     ' Clear the cart after submission
     cartDict.RemoveAll
     Me.listCart.Clear
-    UpdateTotalPayment
+    
 
     MsgBox "Import completed successfully!"
 End Sub
@@ -426,4 +381,33 @@ Private Sub UpdateTotalPayment()
     Next i
 
     lblTotal.Caption = "T" & ChrW(7893) & "ng c" & ChrW(7897) & "ng: " & Format(total, "#,### VND")
+End Sub
+Private Sub btnDelete_Click()
+    If listCart.ListIndex = -1 Then
+        MsgBox "Please select an item to remove from the cart.", vbExclamation, "No Item Selected"
+        Exit Sub
+    End If
+
+    Dim itemName As String
+    itemName = listCart.List(listCart.ListIndex, 0) ' Get selected item name
+
+    ' Remove item from Dictionary
+    If cartDict.Exists(itemName) Then
+        cartDict.Remove itemName
+    End If
+
+    listCart.RemoveItem listCart.ListIndex
+    UpdateTotalPayment
+End Sub
+Private Sub UpdateListBox()
+    listCart.Clear
+    Dim item As Variant
+    For Each item In cartDict.Keys
+        With listCart
+            .AddItem cartDict(item)(5) ' Item Name
+            .List(.ListCount - 1, 1) = cartDict(item)(7) ' Import Quantity
+            .List(.ListCount - 1, 2) = Format(cartDict(item)(8), "#,###") ' Sell Price
+            .List(.ListCount - 1, 3) = Format(cartDict(item)(9), "#,###") ' Total Payment
+        End With
+    Next item
 End Sub
