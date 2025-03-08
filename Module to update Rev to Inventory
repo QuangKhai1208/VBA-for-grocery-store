@@ -1,0 +1,137 @@
+Sub UpdateInventory()
+    'On Error GoTo ErrorHandler
+
+    ' Get the path of the workbook containing the code
+    Dim workbookPath As String
+    workbookPath = ThisWorkbook.Path
+    
+    Dim inventoryFilePath As String
+    inventoryFilePath = workbookPath & "\Minimart 69 - 2025 - Hang ton kho.xlsm"
+
+    Dim revenueSheet As Worksheet
+    Set revenueSheet = ThisWorkbook.Sheets(1)  ' Change to the actual sheet name
+    
+    ' Define the "Inventory balance" workbook and sheet
+    Dim inventoryWorkbook As Workbook
+    Set inventoryWorkbook = Workbooks.Open(inventoryFilePath)
+    Dim inventorySheet As Worksheet
+    Set inventorySheet = inventoryWorkbook.Sheets(1) ' Change to the actual sheet name
+
+    ' Find the last row in the "Import" sheet
+    Dim lastRowRevenue  As Long
+    lastRowRevenue = revenueSheet.Cells(revenueSheet.Rows.Count, "F").End(xlUp).Row
+
+    ' Find the latest update time in the "revenue" sheet (assuming it's in cell E2)
+    Dim latestUpdateTime As Variant
+    latestUpdateTime = revenueSheet.Range("F2").Value
+
+    ' Set the range for the unique item codes using Scripting Dictionary
+    Dim uniqueItems As Object
+    Set uniqueItems = CreateObject("Scripting.Dictionary")
+    
+    ' Loop through the "Revenue" sheet starting from row 5
+    Dim revenueRowCheck As Range
+    For Each revenueRowCheck In revenueSheet.Range("D5:D" & revenueSheet.Cells(revenueSheet.Rows.Count, "F").End(xlUp).Row)
+        ' Check if the item code exists in the dictionary
+        If Not uniqueItems.Exists(revenueRowCheck.Value) Then
+            ' Add the item code to the dictionary
+            uniqueItems(revenueRowCheck.Value) = revenueRowCheck.Value
+        End If
+    Next revenueRowCheck
+    
+    ' Loop through the unique item codes
+    Dim itemCode As Variant
+    For Each itemCode In uniqueItems.Keys
+        ' Reset the dummy variables for each item code
+        'Debug.Print (itemCode)
+        dumQuant = 0
+        dumPriceVN = 0
+        dumPriceForeign = 0
+        dumValue = 0
+
+        ' Loop through the "Import" sheet starting from row 5
+        Dim revenueRow As Long
+        For revenueRow = 5 To lastRowRevenue
+            ' Check if the item code matches
+            If revenueSheet.Cells(revenueRow, 4).Value = itemCode Then
+            'Debug.Print "Status" & revenueRowCheck.Cells(revenueRowCheck.Row, 9).Value
+                'Tam thoi tat chuc nang nay xem ntn?
+                'If revenueRowCheck.Cells(revenueRowCheck.Row, 10).Value = revenueSheet.Cells(1, 16).Value Then
+                    ' If the status matches, bypass and do nothing for this row
+                'Exit For ' Exit the loop for this item code
+                'End If
+                    'Update the dummy variables
+                    'Quantity
+                    dumQuant = dumQuant + revenueSheet.Cells(revenueRowCheck.Row, 9).Value ' Assuming column H represents quantity
+                    
+                    'Average Price for Vietnamese
+                    If revenueSheet.Cells(revenueRowCheck.Row, 15).Value = "Vi" & ChrW(7879) & "t Nam" Then
+                        If dumPriceVN = 0 Then
+                        dumPriceVN = dumPriceVN + revenueSheet.Cells(revenueRowCheck.Row, 8).Value ' Assuming column I represents unit price
+                        Else
+                        dumPriceVN = (dumPriceVN + revenueSheet.Cells(revenueRowCheck.Row, 8).Value) / 2
+                        End If
+                    End If
+                    
+                    'Average Price for Foreigners
+                    If revenueSheet.Cells(revenueRowCheck.Row, 15).Value = "Ng" & ChrW(432) & ChrW(7901) & "i n" & ChrW(432) & ChrW(7899) & "c ngoài" Then
+                        If dumPriceForeign = 0 Then
+                        dumPriceForeign = dumPriceForeign + revenueSheet.Cells(revenueRowCheck.Row, 8).Value ' Assuming column I represents unit price
+                        Else
+                        dumPriceForeign = (dumPriceForeign + revenueSheet.Cells(revenueRowCheck.Row, 8).Value) / 2
+                        End If
+                    End If
+                    
+                    Dim checkValue As Double
+                    checkValue = revenueSheet.Cells(revenueRowCheck.Row, 9).Value * revenueSheet.Cells(revenueRowCheck.Row, 8).Value
+                    
+                    'Total value
+                    If revenueSheet.Cells(revenueRowCheck.Row, 10).Value <> checkValue Then
+                        MsgBox "Error: Quantity x Price <> Value in " & itemCode & ". Please recalculate at row " & revenueRowCheck.Row
+                        Exit For ' Exit the loop for this item code
+                    End If
+                    dumValue = dumValue + revenueSheet.Cells(revenueRowCheck.Row, 10).Value ' Assuming column J represents total value
+    
+                    ' Update the Status of a line in Import
+                    revenueSheet.Cells(revenueRowCheck.Row, 13).Value = revenueSheet.Cells(1, 16).Value
+    
+                    ' Update the update time of a line in Import
+                    revenueSheet.Cells(revenueRowCheck.Row, 14).Value = revenueSheet.Cells(2, 5).Value
+                
+            End If
+        Next revenueRowCheck
+
+        ' Find the corresponding item code in the "Inventory" sheet
+        Dim inventoryRow As Range
+        Set inventoryRow = inventorySheet.Columns(2).Find(itemCode, LookIn:=xlValues, LookAt:=xlWhole) ' Assuming Item code is in column B in "Inventory" sheet
+
+        ' If the corresponding item code is found in the "Inventory" sheet, update the quantities, prices, and values
+        If Not inventoryRow Is Nothing Then
+            ' Update the total number of items
+            inventoryRow.Offset(0, 9).Value = dumQuant ' S? lu?ng nh?p kho (Total quantity)
+            Debug.Print (dumQuant)
+
+            ' Update the unit selling price (use the provided unit price from "Import" sheet)
+            inventoryRow.Offset(0, 10).Value = dumPriceVN ' Ðon giá bán (Selling price) cho VN
+            Debug.Print (dumPriceVN)
+            
+            inventoryRow.Offset(0, 11).Value = dumPriceForeign ' Ðon giá bán (Selling price) cho nuoc ngoai
+
+            ' Update the total value of the item
+            inventoryRow.Offset(0, 12).Value = dumValue ' Giá tri bán (Total revenue)
+            Debug.Print (dumValue)
+        End If
+    Next itemCode
+
+    ' Update cell E2 in the "Import" sheet with the current date and time
+    revenueSheet.Range("E2").Value = Now()
+    ThisWorkbook.Save
+    inventoryWorkbook.Save
+
+    ' Close the "Import" and "Inventory balance" workbooks after updating
+    'revenueWorkbook.Close SaveChanges:=True
+    'inventoryWorkbook.Close SaveChanges:=True
+
+    Exit Sub
+End Sub
+
