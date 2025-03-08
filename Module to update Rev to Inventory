@@ -17,33 +17,46 @@ Sub UpdateInventory()
     Dim inventorySheet As Worksheet
     Set inventorySheet = inventoryWorkbook.Sheets(1) ' Change to the actual sheet name
 
-    ' Find the last row in the "Import" sheet
+    ' Find the last row in the "Revenue" sheet
     Dim lastRowRevenue  As Long
     lastRowRevenue = revenueSheet.Cells(revenueSheet.Rows.Count, "F").End(xlUp).Row
 
-    ' Find the latest update time in the "revenue" sheet (assuming it's in cell E2)
+    ' Find the latest update time in the "Revenue" sheet (assuming it's in cell F2)
     Dim latestUpdateTime As Variant
     latestUpdateTime = revenueSheet.Range("F2").Value
 
+    ' Load revenue data into an array
+    Dim revenueData As Variant
+    revenueData = revenueSheet.Range("A5:P" & lastRowRevenue).Value ' Adjust range as needed
+    
     ' Set the range for the unique item codes using Scripting Dictionary
     Dim uniqueItems As Object
     Set uniqueItems = CreateObject("Scripting.Dictionary")
     
     ' Loop through the "Revenue" sheet starting from row 5
-    Dim revenueRowCheck As Range
-    For Each revenueRowCheck In revenueSheet.Range("D5:D" & revenueSheet.Cells(revenueSheet.Rows.Count, "F").End(xlUp).Row)
+    Dim revenueRowCheck As Long
+    For revenueRowCheck = 1 To UBound(revenueData, 1)
         ' Check if the item code exists in the dictionary
-        If Not uniqueItems.Exists(revenueRowCheck.Value) Then
-            ' Add the item code to the dictionary
-            uniqueItems(revenueRowCheck.Value) = revenueRowCheck.Value
+        Dim currentItemCode  As String 'To be change to barcode in the next version
+        currentItemCode = revenueData(revenueRowCheck, 4)  ' Column D: Item Code
+        If Not uniqueItems.Exists(currentItemCode) Then
+            uniqueItems(currentItemCode) = uniqueItems.Count + 1 ' Store unique item codes
         End If
     Next revenueRowCheck
+    
+    ' Prepare to store results for inventory updates
+    Dim inventoryUpdates As Collection
+    Set inventoryUpdates = New Collection
     
     ' Loop through the unique item codes
     Dim itemCode As Variant
     For Each itemCode In uniqueItems.Keys
         ' Reset the dummy variables for each item code
         'Debug.Print (itemCode)
+        Dim dumQuant As Double
+        Dim dumPriceVN As Double
+        Dim dumPriceForeign As Double
+        Dim dumValue As Double
         dumQuant = 0
         dumPriceVN = 0
         dumPriceForeign = 0
@@ -51,55 +64,55 @@ Sub UpdateInventory()
 
         ' Loop through the "Import" sheet starting from row 5
         Dim revenueRow As Long
-        For revenueRow = 5 To lastRowRevenue
+        For revenueRow = 1 To UBound(revenueData, 1)
             ' Check if the item code matches
-            If revenueSheet.Cells(revenueRow, 4).Value = itemCode Then
-            'Debug.Print "Status" & revenueRowCheck.Cells(revenueRowCheck.Row, 9).Value
-                'Tam thoi tat chuc nang nay xem ntn?
-                'If revenueRowCheck.Cells(revenueRowCheck.Row, 10).Value = revenueSheet.Cells(1, 16).Value Then
-                    ' If the status matches, bypass and do nothing for this row
-                'Exit For ' Exit the loop for this item code
-                'End If
-                    'Update the dummy variables
-                    'Quantity
-                    dumQuant = dumQuant + revenueSheet.Cells(revenueRowCheck.Row, 9).Value ' Assuming column H represents quantity
+            If revenueData(revenueRow, 4) = itemCode Then ' Column D: Item Code
+                    dumQuant = dumQuant + revenueData(revenueRow, 10) ' Assuming column 10th represents selling quantity
                     
                     'Average Price for Vietnamese
-                    If revenueSheet.Cells(revenueRowCheck.Row, 15).Value = "Vi" & ChrW(7879) & "t Nam" Then
+                    If revenueData(revenueRow, 16) = "Vi" & ChrW(7879) & "t Nam" Then
                         If dumPriceVN = 0 Then
-                        dumPriceVN = dumPriceVN + revenueSheet.Cells(revenueRowCheck.Row, 8).Value ' Assuming column I represents unit price
+                            dumPriceVN = dumPriceVN + revenueData(revenueRow, 9) ' Assuming column I represents unit price
                         Else
-                        dumPriceVN = (dumPriceVN + revenueSheet.Cells(revenueRowCheck.Row, 8).Value) / 2
+                        dumPriceVN = (dumPriceVN + revenueData(revenueRow, 9)) / 2
                         End If
-                    End If
-                    
+                        
                     'Average Price for Foreigners
-                    If revenueSheet.Cells(revenueRowCheck.Row, 15).Value = "Ng" & ChrW(432) & ChrW(7901) & "i n" & ChrW(432) & ChrW(7899) & "c ngoài" Then
-                        If dumPriceForeign = 0 Then
-                        dumPriceForeign = dumPriceForeign + revenueSheet.Cells(revenueRowCheck.Row, 8).Value ' Assuming column I represents unit price
-                        Else
-                        dumPriceForeign = (dumPriceForeign + revenueSheet.Cells(revenueRowCheck.Row, 8).Value) / 2
+                    ElseIf revenueData(revenueRow, 16) = "Ng" & ChrW(432) & ChrW(7901) & "i n" & ChrW(432) & ChrW(7899) & "c ngoài" Then
+                            If dumPriceForeign = 0 Then
+                            dumPriceForeign = dumPriceForeign + revenueData(revenueRow, 9) ' Assuming column I represents unit price
+                            Else
+                            dumPriceForeign = (dumPriceForeign + revenueData(revenueRow, 9)) / 2
+                            End If
+                            
+                    Else
+                            MsgBox "Error: No Customer type defined. Please recalculate at row " & revenueRow
+                            Application.Goto Reference:=revenueSheet.Cells(revenueRow, 16), Scroll:=True
+                            Exit For
                         End If
-                    End If
                     
                     Dim checkValue As Double
-                    checkValue = revenueSheet.Cells(revenueRowCheck.Row, 9).Value * revenueSheet.Cells(revenueRowCheck.Row, 8).Value
+                    checkValue = revenueData(revenueRow, 9) * revenueData(revenueRow, 10)
                     
                     'Total value
-                    If revenueSheet.Cells(revenueRowCheck.Row, 10).Value <> checkValue Then
-                        MsgBox "Error: Quantity x Price <> Value in " & itemCode & ". Please recalculate at row " & revenueRowCheck.Row
+                    If revenueData(revenueRow, 11) <> checkValue Then
+                        MsgBox "Error: Quantity x Price <> Value in " & itemCode & ". Please recalculate at row " & revenueRow
                         Exit For ' Exit the loop for this item code
                     End If
-                    dumValue = dumValue + revenueSheet.Cells(revenueRowCheck.Row, 10).Value ' Assuming column J represents total value
+                    dumValue = dumValue + revenueData(revenueRow, 11) ' Assuming column J represents total value
     
                     ' Update the Status of a line in Import
-                    revenueSheet.Cells(revenueRowCheck.Row, 13).Value = revenueSheet.Cells(1, 16).Value
+                    revenueSheet.Cells(revenueRow, 14).Value = revenueSheet.Cells(1, 17).Value
     
                     ' Update the update time of a line in Import
-                    revenueSheet.Cells(revenueRowCheck.Row, 14).Value = revenueSheet.Cells(2, 5).Value
+                    revenueSheet.Cells(revenueRow, 15).Value = revenueSheet.Cells(2, 5).Value
                 
             End If
-        Next revenueRowCheck
+        Next revenueRow
+        Debug.Print (dumQuant)
+        Debug.Print (dumPriceVN)
+        Debug.Print (dumPriceForeign)
+        Debug.Print (dumValue)
 
         ' Find the corresponding item code in the "Inventory" sheet
         Dim inventoryRow As Range
@@ -107,21 +120,20 @@ Sub UpdateInventory()
 
         ' If the corresponding item code is found in the "Inventory" sheet, update the quantities, prices, and values
         If Not inventoryRow Is Nothing Then
-            ' Update the total number of items
-            inventoryRow.Offset(0, 9).Value = dumQuant ' S? lu?ng nh?p kho (Total quantity)
-            Debug.Print (dumQuant)
-
-            ' Update the unit selling price (use the provided unit price from "Import" sheet)
-            inventoryRow.Offset(0, 10).Value = dumPriceVN ' Ðon giá bán (Selling price) cho VN
-            Debug.Print (dumPriceVN)
+            Dim updateInfo As Variant
+            updateInfo = Array(inventoryRow.Row, dumQuant, dumPriceVN, dumPriceForeign, dumValue)
+            inventoryUpdates.Add updateInfo
             
-            inventoryRow.Offset(0, 11).Value = dumPriceForeign ' Ðon giá bán (Selling price) cho nuoc ngoai
-
-            ' Update the total value of the item
-            inventoryRow.Offset(0, 12).Value = dumValue ' Giá tri bán (Total revenue)
-            Debug.Print (dumValue)
         End If
     Next itemCode
+
+    Dim update As Variant
+        For Each update In inventoryUpdates
+            inventorySheet.Cells(update(0), 12).Value = update(1)  ' Total quantity
+            inventorySheet.Cells(update(0), 13).Value = update(2)  ' Selling price for VN
+            inventorySheet.Cells(update(0), 14).Value = update(3)  ' Selling price for foreigners
+            inventorySheet.Cells(update(0), 15).Value = update(4)  ' Total revenue
+        Next update
 
     ' Update cell E2 in the "Import" sheet with the current date and time
     revenueSheet.Range("E2").Value = Now()
@@ -134,4 +146,3 @@ Sub UpdateInventory()
 
     Exit Sub
 End Sub
-
